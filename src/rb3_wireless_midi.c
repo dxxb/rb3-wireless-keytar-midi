@@ -202,7 +202,14 @@ static void handle_input_report(void * inContext,
     uint32_t key_new_bits = key_bits_(ktr_dev->in_report);
     uint32_t key_old_bits = key_bits_(ktr_dev->last_in_report);
     uint32_t key_changed_bits = key_new_bits ^ key_old_bits;
-    
+
+    /* FIXME:
+     * - in MIDI mode both note on and note off messages carry a valid velocity value (i.e. release
+     *     velocity is also transmitted).
+     * - in MIDI mode valid velocity information is transmitted independently of the number of keys
+     *     currently held down.
+     * - in MIDI mode when mapping lower octave to drums velocity on note off is always zero.
+     */
     /* determine which velocity slots contain new velocity information
      *
      * Slots can transition as follows:
@@ -317,23 +324,31 @@ static void handle_input_report(void * inContext,
         /* exit block */
         break;
     }
-    
+
+#if 1
+    /* in MIDI mode pitch bender is not reset to zero when the handle button is released */
+    /* in MIDI mode modulation wheel is not reset to zero when the handle button is pressed */
+#else
     if (report_idx_changed_(ktr_dev, BTN_HANDLE_IDX)) {
         if (!ktr_dev->in_report[BTN_HANDLE_IDX]) {
-            uint8_t pitch_wheel[3]= {0xE0 | ktr_dev->channel, 0, 0x40};
-            midipacket_add_(ktr_dev, timestamp, sizeof(pitch_wheel), pitch_wheel);
+            uint8_t pitch_bender[3]= {0xE0 | ktr_dev->channel, 0, 0x40};
+            midipacket_add_(ktr_dev, timestamp, sizeof(pitch_bender), pitch_bender);
         } else {
             uint8_t mod_wheel[3]= {0xB0 | ktr_dev->channel, 1, 0x00};
             midipacket_add_(ktr_dev, timestamp, sizeof(mod_wheel), mod_wheel);
         }
     }
+#endif
     
     if (report_idx_changed_(ktr_dev, MISC_TOUCHSTRIP_IDX)) {
+        uint8_t val = ktr_dev->in_report[MISC_TOUCHSTRIP_IDX];
         if (ktr_dev->in_report[BTN_HANDLE_IDX]) {
-            uint8_t pitch_wheel[3]= {0xE0 | ktr_dev->channel, 0, ktr_dev->in_report[MISC_TOUCHSTRIP_IDX]};
-            midipacket_add_(ktr_dev, timestamp, sizeof(pitch_wheel), pitch_wheel);
-        } else {
-            uint8_t mod_wheel[3]= {0xB0 | ktr_dev->channel, 1, ktr_dev->in_report[MISC_TOUCHSTRIP_IDX]};
+            /* in MIDI mode pitch bender is 0x40 (center) when not touching the strip */
+            uint8_t pitch_bender[3]= {0xE0 | ktr_dev->channel, 0, val ? val : 0x40};
+            midipacket_add_(ktr_dev, timestamp, sizeof(pitch_bender), pitch_bender);
+        } else if (val) {
+            /* in MIDI mode modulation wheel is not reset to zero when not touching the strip */
+            uint8_t mod_wheel[3]= {0xB0 | ktr_dev->channel, 1, val};
             midipacket_add_(ktr_dev, timestamp, sizeof(mod_wheel), mod_wheel);
         }
     }
