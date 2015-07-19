@@ -63,20 +63,20 @@
 struct rb_keytar_dev {
     struct rb_keytar_dev *prev;
     struct rb_keytar_dev *next;
-    
+
     IOHIDDeviceRef io_hid_dev;
-    
+
     size_t in_report_size;
     uint8_t *in_report;
     uint8_t *last_in_report;
-    
+
     MIDIClientRef midiclient;
     MIDIPortRef midiport;
     MIDIEndpointRef  midiout;
     MIDIPacket *midi_curpacket;
     size_t midi_packetlist_sz;
     MIDIPacketList *midi_packetlist;
-    
+
     uint8_t channel;
     uint8_t octave;
     uint8_t program;
@@ -105,7 +105,7 @@ CFMutableDictionaryRef create_dev_matching_dict(int vendor_id, int prod_id)
         } else {
             goto err;
         }
-        
+
         CFNumberRef pid = CFNumberCreate(kCFAllocatorDefault, kCFNumberIntType,
                                          &prod_id);
         if (pid) {
@@ -116,7 +116,7 @@ CFMutableDictionaryRef create_dev_matching_dict(int vendor_id, int prod_id)
         }
     }
     return res;
-    
+
 err:
     if (res)
         CFRelease(res);
@@ -136,7 +136,7 @@ static void midipacket_add_(struct rb_keytar_dev *ktr_dev, MIDITimeStamp time,
 {
     if (!ktr_dev->midi_curpacket)
         ktr_dev->midi_curpacket = MIDIPacketListInit(ktr_dev->midi_packetlist);
-    
+
     MIDIPacket *tmp = MIDIPacketListAdd(ktr_dev->midi_packetlist, ktr_dev->midi_packetlist_sz,
                                         ktr_dev->midi_curpacket, time, nData, data);
     if (!tmp) {
@@ -145,7 +145,7 @@ static void midipacket_add_(struct rb_keytar_dev *ktr_dev, MIDITimeStamp time,
         tmp = MIDIPacketListAdd(ktr_dev->midi_packetlist, ktr_dev->midi_packetlist_sz,
                                 ktr_dev->midi_curpacket, time, nData, data);
     }
-    
+
     assert(tmp);
     ktr_dev->midi_curpacket = tmp;
 }
@@ -184,7 +184,7 @@ static void handle_input_report(void * inContext,
 {
     struct rb_keytar_dev *ktr_dev = (struct rb_keytar_dev*)inContext;
     MIDITimeStamp timestamp = 0;
-    
+
     /* Ignore errored reports */
     if (inResult)
         return;
@@ -242,7 +242,7 @@ static void handle_input_report(void * inContext,
             new_key_vel[array_idx++] = ktr_dev->in_report[slot_idx] & 0x7F;
         }
     }
-    
+
     size_t key_idx = 0;
     size_t new_note_cnt = 0;
     while (key_changed_bits) {
@@ -266,13 +266,13 @@ static void handle_input_report(void * inContext,
             midi_note[0] |= 0x80;
         }
         midipacket_add_(ktr_dev, timestamp, sizeof(midi_note), midi_note);
-        
+
     next_key:
         key_changed_bits <<= 1;
         key_new_bits <<= 1;
         key_idx++;
     }
-    
+
     if (report_idx_changed_(ktr_dev, BTN_MHP_IDX)) {
         if (ktr_dev->in_report[BTN_MHP_IDX] == (BTN_MINUS_MASK|BTN_HOME_MASK|BTN_PLUS_MASK)) {
             /* panic key combination, send MIDI all off */
@@ -291,7 +291,7 @@ static void handle_input_report(void * inContext,
             midipacket_add_(ktr_dev, timestamp, sizeof(realtimemsg), realtimemsg);
         }
     }
-    
+
     while (report_idx_changed_(ktr_dev, BTN_AB12_IDX)) {
         if (ktr_dev->in_report[BTN_AB12_IDX] == (BTN_1_MASK|BTN_B_MASK)) {
             /* reset octave transpose */
@@ -303,7 +303,7 @@ static void handle_input_report(void * inContext,
             /* octave up */
             ktr_dev->octave = ktr_dev->octave < MAX_OCTAVE ? ktr_dev->octave+1 : MAX_OCTAVE;
         }
-        
+
         if (ktr_dev->in_report[BTN_AB12_IDX] == (BTN_2_MASK|BTN_A_MASK)) {
             /* reset program */
             ktr_dev->program = 0;
@@ -317,10 +317,10 @@ static void handle_input_report(void * inContext,
             /* skip updating midi program if nothing changed */
             break;
         }
-        
+
         uint8_t pchange[2]= {0xC0 | ktr_dev->channel, ktr_dev->program};
         midipacket_add_(ktr_dev, timestamp, sizeof(pchange), pchange);
-        
+
         /* exit block */
         break;
     }
@@ -339,7 +339,7 @@ static void handle_input_report(void * inContext,
         }
     }
 #endif
-    
+
     if (report_idx_changed_(ktr_dev, MISC_TOUCHSTRIP_IDX)) {
         uint8_t val = ktr_dev->in_report[MISC_TOUCHSTRIP_IDX];
         if (ktr_dev->in_report[BTN_HANDLE_IDX]) {
@@ -352,13 +352,13 @@ static void handle_input_report(void * inContext,
             midipacket_add_(ktr_dev, timestamp, sizeof(mod_wheel), mod_wheel);
         }
     }
-    
+
     if (report_idx_changed_(ktr_dev, DPAD_STATE_IDX)) {
         if (ktr_dev->in_report[DPAD_STATE_IDX] == DPAD_U_VAL) {
             ktr_dev->drum_mapping = !ktr_dev->drum_mapping;
         }
     }
-    
+
 send_midi_cmds:
     midipacketlist_send_(ktr_dev);
     memcpy(ktr_dev->last_in_report, ktr_dev->in_report, ktr_dev->in_report_size);
@@ -402,7 +402,7 @@ static void add_matching_device(void *inContext, IOReturn inResult,
     OSStatus status;
     long max_report_size;
     struct rb_keytar_dev *newdev = NULL;
-    
+
     /* Ignore devices we are not interested in */
     if (IOHIDDevice_GetVendorID(inIOHIDDeviceRef) != VENDOR_ID ||
         IOHIDDevice_GetProductID(inIOHIDDeviceRef) != PRODUCT_ID)
@@ -413,24 +413,24 @@ static void add_matching_device(void *inContext, IOReturn inResult,
                                          CFSTR(kIOHIDMaxInputReportSizeKey));
     if (!p || !CFNumberGetValue(p, kCFNumberLongType, &max_report_size))
         goto fail;
-    
+
     /* Create device */
     newdev = calloc(1, sizeof(struct rb_keytar_dev));
     if (!newdev)
         goto fail;
-    
+
     newdev->midi_packetlist_sz = MIDI_BUFSZ;
     newdev->midi_packetlist = calloc(1, newdev->midi_packetlist_sz);
     if (!newdev->midi_packetlist)
         goto fail;
-    
+
     /* Sequence IDs are 0 < seq_id < 255, setting a value out fo range makes
      * sure the first update is serviced
      */
     newdev->in_report_size = max_report_size;
     newdev->octave = DEFAULT_OCTAVE;
     newdev->program = MIN_PROGRAM;
-    
+
     newdev->in_report = calloc(2, newdev->in_report_size);
     if (!newdev->in_report)
         goto fail;
@@ -465,7 +465,7 @@ static void add_matching_device(void *inContext, IOReturn inResult,
 
     printf("MIDI Client for matching device created\n");
     return;
-    
+
 fail:
     if (newdev) {
         if (newdev->in_report)
@@ -484,34 +484,34 @@ static void rm_matching_device(void *inContext, IOReturn inResult,
                                IOHIDDeviceRef inIOHIDDeviceRef) {
     
     struct rb_keytar_dev *olddev = list_head;
-    
+
     while (olddev) {
         if (olddev->io_hid_dev == inIOHIDDeviceRef)
             break;
         olddev = olddev->next;
     }
-    
+
     if (!olddev)
         return;
-    
+
     /* Unregister input report callback */
     IOHIDDeviceRegisterInputReportCallback(inIOHIDDeviceRef, NULL, 0, NULL,
                                            NULL);
-    
+
     /* Cleanup all MIDI related state */
     MIDIClientDispose(olddev->midiclient);
-    
+
     /* Remove device form the list */
     if (olddev->next)
         olddev->next->prev = olddev->prev;
     else
         list_tail = olddev->prev;
-    
+
     if (olddev->prev)
         olddev->prev->next = olddev->next;
     else
         list_head = olddev->next;
-    
+
     /* Dispose of the device */
     if (olddev->in_report)
         free(olddev->in_report);
@@ -528,30 +528,30 @@ int setup_hid(IOHIDManagerRef hid_manager)
                                      kIOHIDOptionsTypeNone);
     if (!hid_manager)
         return -ENOMEM;
-    
+
     IOHIDManagerScheduleWithRunLoop(hid_manager, CFRunLoopGetCurrent(),
                                     kCFRunLoopDefaultMode);
-    
+
     if (IOHIDManagerOpen(hid_manager, kIOHIDOptionsTypeNone) != kIOReturnSuccess)
         goto err;
-    
+
 #ifdef USE_MATCHING_DICT
     CFDictionaryRef matching_dict = create_dev_matching_dict(VENDOR_ID, PRODUCT_ID);
     if (!matching_dict)
         return -ENOMEM;
 #endif
-    
+
     IOHIDManagerSetDeviceMatching(hid_manager, matching_dict);
-    
+
 #ifdef USE_MATCHING_DICT
     CFRelease(matching_dict);
 #endif
-    
+
     IOHIDManagerRegisterDeviceMatchingCallback(hid_manager, add_matching_device, NULL);
     IOHIDManagerRegisterDeviceRemovalCallback(hid_manager, rm_matching_device, NULL);
-    
+
     return 0;
-    
+
 err:
     if (hid_manager) {
         IOHIDManagerClose(hid_manager, kIOHIDOptionsTypeNone);
@@ -562,7 +562,6 @@ err:
     }
     return -ENODEV;
 }
-
 
 void teardown_hid(IOHIDManagerRef hid_manager)
 {
