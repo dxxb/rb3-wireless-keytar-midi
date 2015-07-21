@@ -23,6 +23,10 @@
 #define FIRST_GENERAL_MIDI_DRUM_NOTE (35)
 #define MIN_PROGRAM (0)
 #define MAX_PROGRAM (127)
+#define MIDI_VOLUME_CTRL (0x07)
+#define MIDI_FOOT_CTRL (0x04)
+#define MIDI_EXPRESSION_CTRL (0x0B)
+#define DEFAULT_MIDI_PEDAL_CTRL MIDI_EXPRESSION_CTRL /* default to expression pedal */
 
 #define BTN_AB12_IDX (0) /* 1 0x1, A 0x2, B 0x4, 2 0x8  */
 #define BTN_MHP_IDX (1) /* minus 0x01, home 0x10, plus 0x02 */
@@ -39,11 +43,12 @@
 #define KB_FIRST_KEYVEL_IDX (8)
 
 #define BTN_HANDLE_IDX (13) /* 0x80 pressed, 0x00 depressed */
-#define MISC_EXPR_PEDAL_IDX (14) /* 0x00-0x7F */
-#define MISC_TOUCHSTRIP_IDX (15) /* 0x00 - 0x7F */
-#define MISC_PEDAL_MSB_IDX (20) /* 0x00-0x03 */
+#define MISC_PEDAL_IDX (14) /* (0x00-0x7F & 0x7F) for expression pedal value and (val & 0x80) for switch state */
+#define MISC_TOUCHSTRIP_IDX (15) /* 0x00 - 0x7F, 0x00 when not touch info is available */
+#define MISC_TRSJACK_STATUS_IDX (20) /* 0x00 no connection, 0x01 r-s shorted, 0x02 R(r-s) < R(t-s), 0x03 R(r-s) > R(t-s) */
 
-#define KB_UPDATESEQID_IDX (25) /* Increments for each changed report. 0x00 when disconnected. */
+#define USB_UPDATESEQID_IDX (25) /* Increments for each changed report. 0x00 when disconnected. */
+#define WLESS_CHANSTATUS_IDX (26) /* wireless channel select or status? 0x00 when disconnected */
 
 #define BTN_1_MASK (0x01)
 #define BTN_A_MASK (0x02)
@@ -80,6 +85,7 @@ struct rb_keytar_dev {
     uint8_t channel;
     uint8_t octave;
     uint8_t program;
+    uint8_t pedal_midi_ctrl;
     bool drum_mapping;
 };
 
@@ -168,6 +174,11 @@ static inline bool report_idx_changed_(struct rb_keytar_dev *ktr_dev, size_t rep
     return (ktr_dev->in_report[report_idx] != ktr_dev->last_in_report[report_idx]);
 }
 
+static inline uint8_t report_idx_changed_bits_(struct rb_keytar_dev *ktr_dev, size_t report_idx)
+{
+    return (ktr_dev->in_report[report_idx] ^ ktr_dev->last_in_report[report_idx]);
+}
+
 static inline bool single_key_edge_(struct rb_keytar_dev *ktr_dev, size_t report_idx, uint8_t mask)
 {
     return ((ktr_dev->in_report[report_idx] == mask) &&
@@ -189,11 +200,16 @@ static void handle_input_report(void * inContext,
     if (inResult)
         return;
     /* Ignore reports where nothing changed */
-    if (!report_idx_changed_(ktr_dev, KB_UPDATESEQID_IDX))
+    if (!report_idx_changed_(ktr_dev, USB_UPDATESEQID_IDX))
         return;
     /* Detect keyboard disconnect and send MIDI all off */
-    if (!ktr_dev->in_report[KB_UPDATESEQID_IDX] &&
-        (ktr_dev->in_report[KB_UPDATESEQID_IDX]-ktr_dev->last_in_report[KB_UPDATESEQID_IDX]) != 1) {
+    if (report_idx_changed_(ktr_dev, WLESS_CHANSTATUS_IDX) && !ktr_dev->in_report[WLESS_CHANSTATUS_IDX]) {
+        midi_panic_(ktr_dev);
+        goto send_midi_cmds;
+    }
+    /* Detect lost report and send MIDI all off */
+    if (!ktr_dev->in_report[USB_UPDATESEQID_IDX] &&
+        (ktr_dev->in_report[USB_UPDATESEQID_IDX]-ktr_dev->last_in_report[USB_UPDATESEQID_IDX]) != 1) {
         midi_panic_(ktr_dev);
         goto send_midi_cmds;
     }
@@ -209,7 +225,13 @@ static void handle_input_report(void * inContext,
      * - in MIDI mode valid velocity information is transmitted independently of the number of keys
      *     currently held down.
      * - in MIDI mode when mapping lower octave to drums velocity on note off is always zero.
+     *
+     * This suggests the current velocity code could be improved assuming the same information is made
+     * available via the wireless dongle. It is not clear how to retrieve it because there are
+     * apparently only 5 slots with velocity information in the USB report. Perhaps a slot
+     * can be freed by acknowledging its data.
      */
+
     /* determine which velocity slots contain new velocity information
      *
      * Slots can transition as follows:
@@ -353,10 +375,31 @@ static void handle_input_report(void * inContext,
         }
     }
 
+    /* handle d-pad events */
     if (report_idx_changed_(ktr_dev, DPAD_STATE_IDX)) {
-        if (ktr_dev->in_report[DPAD_STATE_IDX] == DPAD_U_VAL) {
+        uint8_t val = ktr_dev->in_report[DPAD_STATE_IDX];
+        if (val == DPAD_U_VAL) {
             ktr_dev->drum_mapping = !ktr_dev->drum_mapping;
+        } else if (val == DPAD_D_VAL) {
+            ktr_dev->pedal_midi_ctrl = MIDI_VOLUME_CTRL;
+        } else if (val == DPAD_L_VAL) {
+            ktr_dev->pedal_midi_ctrl = MIDI_EXPRESSION_CTRL;
+        } else if (val == DPAD_R_VAL) {
+            ktr_dev->pedal_midi_ctrl = MIDI_FOOT_CTRL;
         }
+    }
+
+    /* handle pedal and switch */
+    uint8_t pedal_changed_bits = report_idx_changed_bits_(ktr_dev, MISC_PEDAL_IDX);
+    if (pedal_changed_bits & 0x80) {
+        uint8_t sustain_pedal[3]= {0xB0 | ktr_dev->channel, 0x40,
+            (ktr_dev->in_report[MISC_PEDAL_IDX] & 0x80) ? 0x7F : 0x00};
+        midipacket_add_(ktr_dev, timestamp, sizeof(sustain_pedal), sustain_pedal);
+    }
+    if (pedal_changed_bits & 0x7F) {
+        uint8_t pedal[3]= {0xB0 | ktr_dev->channel, ktr_dev->pedal_midi_ctrl,
+            ktr_dev->in_report[MISC_PEDAL_IDX]};
+        midipacket_add_(ktr_dev, timestamp, sizeof(pedal), pedal);
     }
 
 send_midi_cmds:
@@ -424,12 +467,10 @@ static void add_matching_device(void *inContext, IOReturn inResult,
     if (!newdev->midi_packetlist)
         goto fail;
 
-    /* Sequence IDs are 0 < seq_id < 255, setting a value out fo range makes
-     * sure the first update is serviced
-     */
     newdev->in_report_size = max_report_size;
     newdev->octave = DEFAULT_OCTAVE;
     newdev->program = MIN_PROGRAM;
+    newdev->pedal_midi_ctrl = DEFAULT_MIDI_PEDAL_CTRL;
 
     newdev->in_report = calloc(2, newdev->in_report_size);
     if (!newdev->in_report)
