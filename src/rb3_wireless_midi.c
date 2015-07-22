@@ -71,6 +71,8 @@ struct rb_keytar_dev {
 
     IOHIDDeviceRef io_hid_dev;
 
+    size_t errored_report_count;
+    size_t missed_report_count;
     size_t in_report_size;
     uint8_t *in_report;
     uint8_t *last_in_report;
@@ -197,21 +199,24 @@ static void handle_input_report(void * inContext,
     MIDITimeStamp timestamp = 0;
 
     /* Ignore errored reports */
-    if (inResult)
+    if (inResult) {
+        ktr_dev->errored_report_count++;
         return;
+    }
+
     /* Ignore reports where nothing changed */
     if (!report_idx_changed_(ktr_dev, USB_UPDATESEQID_IDX))
         return;
+
     /* Detect keyboard disconnect and send MIDI all off */
     if (report_idx_changed_(ktr_dev, WLESS_CHANSTATUS_IDX) && !ktr_dev->in_report[WLESS_CHANSTATUS_IDX]) {
         midi_panic_(ktr_dev);
         goto send_midi_cmds;
     }
+
     /* Detect lost report and send MIDI all off */
-    if (!ktr_dev->in_report[USB_UPDATESEQID_IDX] &&
-        (ktr_dev->in_report[USB_UPDATESEQID_IDX]-ktr_dev->last_in_report[USB_UPDATESEQID_IDX]) != 1) {
-        midi_panic_(ktr_dev);
-        goto send_midi_cmds;
+    if ((ktr_dev->in_report[USB_UPDATESEQID_IDX]-ktr_dev->last_in_report[USB_UPDATESEQID_IDX]) != 1) {
+        ktr_dev->missed_report_count++;
     }
 
     /* determine which keys changed state */
@@ -295,6 +300,7 @@ static void handle_input_report(void * inContext,
         key_idx++;
     }
 
+    /* handle minus-home-plus buttons events */
     if (report_idx_changed_(ktr_dev, BTN_MHP_IDX)) {
         if (ktr_dev->in_report[BTN_MHP_IDX] == (BTN_MINUS_MASK|BTN_HOME_MASK|BTN_PLUS_MASK)) {
             /* panic key combination, send MIDI all off */
@@ -314,6 +320,7 @@ static void handle_input_report(void * inContext,
         }
     }
 
+    /* handle 1,2,A,B buttons events */
     while (report_idx_changed_(ktr_dev, BTN_AB12_IDX)) {
         if (ktr_dev->in_report[BTN_AB12_IDX] == (BTN_1_MASK|BTN_B_MASK)) {
             /* reset octave transpose */
@@ -362,6 +369,7 @@ static void handle_input_report(void * inContext,
     }
 #endif
 
+    /* handle touchstrip events */
     if (report_idx_changed_(ktr_dev, MISC_TOUCHSTRIP_IDX)) {
         uint8_t val = ktr_dev->in_report[MISC_TOUCHSTRIP_IDX];
         if (ktr_dev->in_report[BTN_HANDLE_IDX]) {
