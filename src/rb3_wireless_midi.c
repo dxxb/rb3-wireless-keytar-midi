@@ -44,7 +44,7 @@
 
 #define BTN_HANDLE_IDX (13) /* 0x80 pressed, 0x00 depressed */
 #define MISC_PEDAL_IDX (14) /* (0x00-0x7F & 0x7F) for expression pedal value and (val & 0x80) for switch state */
-#define MISC_TOUCHSTRIP_IDX (15) /* 0x00 - 0x7F, 0x00 when not touch info is available */
+#define MISC_TOUCHSTRIP_IDX (15) /* 0x00 - 0x7F, 0x00 when no touch info is available */
 #define MISC_TRSJACK_STATUS_IDX (20) /* 0x00 no connection, 0x01 r-s shorted, 0x02 R(r-s) < R(t-s), 0x03 R(r-s) > R(t-s) */
 
 #define USB_UPDATESEQID_IDX (25) /* Increments for each changed report. 0x00 when disconnected. */
@@ -420,7 +420,7 @@ static Boolean IOHIDDevice_GetLongProperty(IOHIDDeviceRef inDeviceRef,
                                            long * outValue)
 {
     Boolean result = FALSE;
-    
+
     CFTypeRef tCFTypeRef = IOHIDDeviceGetProperty( inDeviceRef, inKey );
     if ( tCFTypeRef ) {
         // if this is a number
@@ -531,7 +531,7 @@ fail:
 static void rm_matching_device(void *inContext, IOReturn inResult,
                                void *inSender,
                                IOHIDDeviceRef inIOHIDDeviceRef) {
-    
+
     struct rb_keytar_dev *olddev = list_head;
 
     while (olddev) {
