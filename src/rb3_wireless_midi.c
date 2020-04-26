@@ -544,8 +544,8 @@ static void rm_matching_device(void *inContext, IOReturn inResult,
         return;
 
     /* Unregister input report callback */
-    IOHIDDeviceRegisterInputReportCallback(inIOHIDDeviceRef, NULL, 0, NULL,
-                                           NULL);
+    IOHIDDeviceRegisterInputReportCallback(inIOHIDDeviceRef, olddev->in_report,
+                                           olddev->in_report_size, NULL, NULL);
 
     /* Cleanup all MIDI related state */
     MIDIClientDispose(olddev->midiclient);
