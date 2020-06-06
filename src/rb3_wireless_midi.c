@@ -198,6 +198,12 @@ static void handle_input_report(void * inContext,
     struct rb_keytar_dev *ktr_dev = (struct rb_keytar_dev*)inContext;
     MIDITimeStamp timestamp = 0;
 
+    printf("\nReport (%ld bytes): [", (long)InReportLength);
+    for (long idx=0; idx < InReportLength; idx++) {
+        printf("%02hhX,", inReport[idx]);
+    }
+    printf("]\n");
+
     /* Ignore errored reports */
     if (inResult) {
         ktr_dev->errored_report_count++;
